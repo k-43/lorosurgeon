@@ -9,7 +9,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use loro::LoroDoc;
+use loro::{LoroDoc, LoroValue};
 use lorosurgeon::{
     ByteArray, DocSync, Hydrate, HydrateResultExt, MapReconciler, Reconcile, RootReconciler,
 };
@@ -2360,5 +2360,101 @@ fn test_newtype_vec_as_field() {
     doc.commit();
 
     let hydrated = DocWithIdList::hydrate_map(&map).unwrap();
+    assert_eq!(hydrated, val);
+}
+
+// ── Raw LoroValue passthrough ───────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Hydrate, Reconcile)]
+struct WithRaw {
+    name: String,
+    raw: LoroValue,
+}
+
+#[test]
+fn test_raw_lorovalue_scalar_roundtrip() {
+    let doc = LoroDoc::new();
+    let map = doc.get_map("root");
+
+    let val = WithRaw {
+        name: "scalar".to_string(),
+        raw: LoroValue::I64(42),
+    };
+
+    let reconciler = RootReconciler::new(map.clone());
+    val.reconcile(reconciler).unwrap();
+    doc.commit();
+
+    let hydrated = WithRaw::hydrate_map(&map).unwrap();
+    assert_eq!(hydrated, val);
+}
+
+#[test]
+fn test_raw_lorovalue_unknown_shape() {
+    // Underlying data has a shape the deriving struct doesn't know about —
+    // hydrating into a `LoroValue` field should capture it verbatim.
+    let doc = LoroDoc::new();
+    let map = doc.get_map("root");
+    map.insert("name", "dynamic").unwrap();
+
+    let inner = doc.get_map("root").insert_container("raw", loro::LoroMap::new()).unwrap();
+    inner.insert("a", 1i64).unwrap();
+    inner.insert("b", "two").unwrap();
+    doc.commit();
+
+    let hydrated = WithRaw::hydrate_map(&map).unwrap();
+    assert_eq!(hydrated.name, "dynamic");
+    match hydrated.raw {
+        LoroValue::Map(m) => {
+            assert_eq!(m.get("a"), Some(&LoroValue::I64(1)));
+            assert_eq!(
+                m.get("b"),
+                Some(&LoroValue::String("two".to_string().into()))
+            );
+        }
+        other => panic!("expected map, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_raw_lorovalue_list_reconcile() {
+    let doc = LoroDoc::new();
+    let map = doc.get_map("root");
+
+    let list_val = LoroValue::List(
+        vec![LoroValue::I64(1), LoroValue::I64(2), LoroValue::I64(3)].into(),
+    );
+    let val = WithRaw {
+        name: "list".to_string(),
+        raw: list_val,
+    };
+
+    let reconciler = RootReconciler::new(map.clone());
+    val.reconcile(reconciler).unwrap();
+    doc.commit();
+
+    let hydrated = WithRaw::hydrate_map(&map).unwrap();
+    assert_eq!(hydrated, val);
+}
+
+#[test]
+fn test_raw_lorovalue_map_reconcile() {
+    let doc = LoroDoc::new();
+    let map = doc.get_map("root");
+
+    let mut inner = std::collections::HashMap::new();
+    inner.insert("a".to_string(), LoroValue::I64(1));
+    inner.insert("b".to_string(), LoroValue::String("two".to_string().into()));
+
+    let val = WithRaw {
+        name: "map".to_string(),
+        raw: LoroValue::Map(inner.into()),
+    };
+
+    let reconciler = RootReconciler::new(map.clone());
+    val.reconcile(reconciler).unwrap();
+    doc.commit();
+
+    let hydrated = WithRaw::hydrate_map(&map).unwrap();
     assert_eq!(hydrated, val);
 }

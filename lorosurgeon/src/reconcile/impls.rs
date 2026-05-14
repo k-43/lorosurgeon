@@ -1,5 +1,7 @@
 //! Reconcile implementations for built-in types.
 
+use loro::LoroValue;
+
 use crate::error::ReconcileError;
 use crate::reconcile::{LoadKey, NoKey, Reconcile, Reconciler};
 
@@ -71,6 +73,46 @@ impl<T: Reconcile> Reconcile for Option<T> {
         match self {
             None => r.null(),
             Some(v) => v.reconcile(r),
+        }
+    }
+}
+
+// ── LoroValue (raw passthrough) ─────────────────────────────────────────
+
+impl Reconcile for LoroValue {
+    type Key = NoKey;
+    fn reconcile<R: Reconciler>(&self, r: R) -> Result<(), ReconcileError> {
+        match self {
+            LoroValue::Null => r.null(),
+            LoroValue::Bool(b) => r.boolean(*b),
+            LoroValue::I64(i) => r.i64(*i),
+            LoroValue::Double(f) => r.f64(*f),
+            LoroValue::String(s) => r.str(s),
+            LoroValue::Binary(b) => r.bytes(b),
+            LoroValue::List(items) => {
+                let mut list_r = r.list()?;
+                while !list_r.is_empty() {
+                    list_r.delete(0)?;
+                }
+                for (i, item) in items.iter().enumerate() {
+                    list_r.insert(i, item)?;
+                }
+                Ok(())
+            }
+            LoroValue::Map(entries) => {
+                let mut map_r = r.map()?;
+                for (k, v) in entries.iter() {
+                    map_r.entry(k, v)?;
+                }
+                let keep: std::collections::HashSet<&str> =
+                    entries.keys().map(|k| k.as_str()).collect();
+                map_r.retain(|k| keep.contains(k))?;
+                Ok(())
+            }
+            LoroValue::Container(_) => Err(ReconcileError::TypeMismatch {
+                expected: "value",
+                found: "container ref",
+            }),
         }
     }
 }

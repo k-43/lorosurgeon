@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use loro::{LoroList, LoroMap, LoroMovableList, LoroValue, ValueOrContainer};
+use loro::{Container, LoroList, LoroMap, LoroMovableList, LoroValue, ValueOrContainer};
 
 use crate::error::HydrateError;
 use crate::hydrate::Hydrate;
@@ -347,6 +347,67 @@ impl<T: Hydrate + Clone> Hydrate for std::borrow::Cow<'_, T> {
 
     fn hydrate_binary(b: &[u8]) -> Result<Self, HydrateError> {
         T::hydrate_binary(b).map(std::borrow::Cow::Owned)
+    }
+}
+
+// ── LoroValue (raw passthrough) ─────────────────────────────────────────
+
+impl Hydrate for LoroValue {
+    fn hydrate(source: &ValueOrContainer) -> Result<Self, HydrateError> {
+        match source {
+            ValueOrContainer::Value(v) => Ok(v.clone()),
+            ValueOrContainer::Container(c) => Ok(match c {
+                Container::Map(m) => m.get_deep_value(),
+                Container::List(l) => l.get_deep_value(),
+                Container::MovableList(l) => l.get_deep_value(),
+                Container::Text(t) => LoroValue::String(t.to_string().into()),
+                _ => return Err(HydrateError::unexpected("known container", "unknown")),
+            }),
+        }
+    }
+
+    fn hydrate_value(value: &LoroValue) -> Result<Self, HydrateError> {
+        Ok(value.clone())
+    }
+
+    fn hydrate_map(map: &LoroMap) -> Result<Self, HydrateError> {
+        Ok(map.get_deep_value())
+    }
+
+    fn hydrate_list(list: &LoroList) -> Result<Self, HydrateError> {
+        Ok(list.get_deep_value())
+    }
+
+    fn hydrate_movable_list(list: &LoroMovableList) -> Result<Self, HydrateError> {
+        Ok(list.get_deep_value())
+    }
+
+    fn hydrate_text(text: &loro::LoroText) -> Result<Self, HydrateError> {
+        Ok(LoroValue::String(text.to_string().into()))
+    }
+
+    fn hydrate_null() -> Result<Self, HydrateError> {
+        Ok(LoroValue::Null)
+    }
+
+    fn hydrate_bool(b: bool) -> Result<Self, HydrateError> {
+        Ok(LoroValue::Bool(b))
+    }
+
+    fn hydrate_i64(i: i64) -> Result<Self, HydrateError> {
+        Ok(LoroValue::I64(i))
+    }
+
+    fn hydrate_f64(f: f64) -> Result<Self, HydrateError> {
+        Ok(LoroValue::Double(f))
+    }
+
+    fn hydrate_string(s: &str) -> Result<Self, HydrateError> {
+        Ok(LoroValue::String(s.to_string().into()))
+    }
+
+    fn hydrate_binary(b: &[u8]) -> Result<Self, HydrateError> {
+        Ok(LoroValue::Binary(b.to_vec().into()))
     }
 }
 
