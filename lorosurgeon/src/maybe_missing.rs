@@ -1,6 +1,6 @@
 //! `MaybeMissing<T>` — distinguishes "key absent" from "key present".
 
-use loro::{LoroList, LoroMap, LoroMovableList, ValueOrContainer};
+use loro::{LoroList, LoroMap, LoroMovableList, LoroValue, ValueOrContainer};
 
 use crate::error::{HydrateError, ReconcileError};
 use crate::hydrate::Hydrate;
@@ -54,6 +54,12 @@ impl<T> MaybeMissing<T> {
 
 impl<T: Hydrate> Hydrate for MaybeMissing<T> {
     fn hydrate(source: &ValueOrContainer) -> Result<Self, HydrateError> {
+        // Treat an explicit Null value as Missing — keeps the
+        // reconcile→hydrate roundtrip working when a field was written as
+        // Null (which is what MaybeMissing::Missing reconciles to).
+        if matches!(source, ValueOrContainer::Value(LoroValue::Null)) {
+            return Ok(MaybeMissing::Missing);
+        }
         T::hydrate(source).map(MaybeMissing::Present)
     }
 
